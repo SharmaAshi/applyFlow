@@ -1,0 +1,12 @@
+langchain
+langgraph
+langsmith
+flask
+langchain-groq
+python-dotenv
+gunicorn
+
+# Google OAuth2 + Gmail API
+google-auth
+google-auth-oauthlib
+google-api-python-client

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Auto-Mail Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* ── Auth bar ── */
+        .auth-bar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 56px;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0 28px;
+            gap: 14px;
+            box-shadow: 0 2px 12px rgba(160,130,255,0.12);
+            z-index: 1000;
+        }
+        .auth-bar .user-info {
+            font-size: 14px;
+            color: #4a426b;
+            font-weight: 600;
+        }
+        .auth-bar .user-info span {
+            color: #7b5cff;
+        }
+        .btn-google {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #fff;
+            border: 2px solid rgba(160,130,255,0.4);
+            color: #3a3550;
+            padding: 8px 18px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            transition: box-shadow 0.2s;
+        }
+        .btn-google:hover { box-shadow: 0 2px 10px rgba(160,130,255,0.3); }
+        .btn-google img { width: 18px; height: 18px; }
+
+        .btn-logout {
+            font-size: 13px;
+            color: #9a8fbc;
+            font-weight: 600;
+            text-decoration: none;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(160,130,255,0.25);
+        }
+        .btn-logout:hover { background: #f3e9ff; }
+
+        /* push layout below fixed bar */
+        body { padding-top: 56px; }
+
+        /* ── Login overlay ── */
+        #loginOverlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(240,234,255,0.92);
+            backdrop-filter: blur(6px);
+            z-index: 999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 18px;
+        }
+        #loginOverlay h2 {
+            font-size: 26px;
+            font-weight: 800;
+            background: linear-gradient(45deg, #7b5cff, #c182ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+        }
+        #loginOverlay p { color: #6e6893; margin: 0; font-size: 15px; }
+        .btn-google-big {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #fff;
+            border: 2px solid rgba(160,130,255,0.45);
+            color: #3a3550;
+            padding: 14px 28px;
+            border-radius: 14px;
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            box-shadow: 0 4px 18px rgba(160,130,255,0.2);
+            transition: transform 0.2s;
+        }
+        .btn-google-big:hover { transform: translateY(-2px); }
+        .btn-google-big img { width: 24px; height: 24px; }
+    </style>
+</head>
+<body>
+
+<!-- ── Auth bar ── -->
+<div class="auth-bar" id="authBar">
+    <!-- filled by JS -->
+</div>
+
+<!-- ── Login overlay (shown when not logged in) ── -->
+<div id="loginOverlay">
+    <h2>AI Auto-Mail Assistant</h2>
+    <p>Sign in with Google to generate and send job application emails</p>
+    <a href="/login" class="btn-google-big">
+        <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google">
+        Sign in with Google
+    </a>
+    <p style="font-size:12px;color:#aaa;">We only request permission to send emails — nothing else.</p>
+</div>
+
+
+<!-- ── Main layout ── -->
+<div class="layout">
+
+    <!-- LEFT PANEL -->
+    <div class="left-panel">
+        <h1>AI Auto-Mail</h1>
+        <p class="sub">Paste job post → Generate → Refine → Send</p>
+
+        <form id="jobForm" enctype="multipart/form-data">
+            <label>Your Profile Info</label>
+            <textarea name="user_info" rows="3" placeholder="I am Aman, skilled in AI/ML..."></textarea>
+
+            <label>Paste Job Post</label>
+            <textarea name="post_data" rows="7" placeholder="Paste job description here..."></textarea>
+
+            <button type="button" onclick="generateEmail()">Generate Email</button>
+        </form>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="right-panel">
+
+        <div class="section">
+            <label>Detected Email</label>
+            <input id="emailDisplay" readonly placeholder="Detected email will appear here" />
+        </div>
+
+        <div id="output" class="outputBox" style="display:none;"></div>
+
+        <div id="feedbackBox" class="section" style="display:none;">
+            <label>Give Feedback</label>
+            <textarea id="feedbackInput" rows="3" placeholder="Make the subject more specific..."></textarea>
+            <button onclick="sendFeedback()">Update Email</button>
+        </div>
+
+        <div id="sendBox" class="section" style="display:none;">
+            <label>Attach Resume (Optional)</label>
+            <div class="file-upload-box">
+                <span id="fileLabel">Choose File</span>
+                <input type="file" id="attachment" onchange="updateFileLabel(event)">
+            </div>
+            <button id="sendBtn" onclick="sendMail()" class="sendBtn">Send Final Email</button>
+        </div>
+    </div>
+</div>
+
+<div id="successToast" class="toast">Email delivered successfully ✅</div>
+
+<script>
+// ── Check login state on load ──────────────────────────────────────────────
+async function checkAuth() {
+    const res  = await fetch("/me");
+    const data = await res.json();
+    const bar  = document.getElementById("authBar");
+    const overlay = document.getElementById("loginOverlay");
+
+    if (data.logged_in) {
+        overlay.style.display = "none";
+        bar.innerHTML = `
+            <span class="user-info">Signed in as <span>${data.email}</span></span>
+            <a href="/logout" class="btn-logout">Sign out</a>
+        `;
+    } else {
+        overlay.style.display = "flex";
+        bar.innerHTML = `
+            <a href="/login" class="btn-google">
+                <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google">
+                Sign in with Google
+            </a>
+        `;
+    }
+}
+checkAuth();
+
+// ── Generate ───────────────────────────────────────────────────────────────
+async function generateEmail() {
+    const formData = new FormData(document.getElementById("jobForm"));
+    const res = await fetch("/getData", { method: "POST", body: formData });
+
+    if (res.status === 401) { window.location.href = "/login"; return; }
+
+    const d = await res.json();
+    document.getElementById("output").style.display = "block";
+    document.getElementById("output").innerHTML =
+        `<b>Subject:</b> ${d.subject}<br><br><b>Body:</b><br>${d.body.replace(/\n/g,"<br>")}`;
+    document.getElementById("emailDisplay").value = d.email || "";
+    document.getElementById("feedbackBox").style.display = "block";
+    document.getElementById("sendBox").style.display = "block";
+}
+
+// ── Feedback ───────────────────────────────────────────────────────────────
+async function sendFeedback() {
+    const fd = new FormData();
+    fd.append("feedback", document.getElementById("feedbackInput").value);
+    const res = await fetch("/generate", { method: "POST", body: fd });
+    const d   = await res.json();
+    document.getElementById("output").innerHTML =
+        `<b>Subject:</b> ${d.subject}<br><br><b>Body:</b><br>${d.body.replace(/\n/g,"<br>")}`;
+}
+
+// ── Send ───────────────────────────────────────────────────────────────────
+async function sendMail() {
+    const fd   = new FormData();
+    const file = document.getElementById("attachment").files[0];
+    if (file) fd.append("attachment", file);
+
+    const res = await fetch("/send", { method: "POST", body: fd });
+    const msg = await res.text();
+    showToast(msg);
+}
+
+function updateFileLabel(e) {
+    const f = e.target.files[0];
+    document.getElementById("fileLabel").innerText = f ? f.name : "Choose File";
+}
+
+function showToast(msg) {
+    const t = document.getElementById("successToast");
+    t.innerText = msg;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 3500);
+}
+</script>
+</body>
+</html>
